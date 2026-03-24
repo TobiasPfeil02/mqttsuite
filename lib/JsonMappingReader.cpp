@@ -99,7 +99,7 @@ namespace mqtt::lib {
         return j;
     }
 
-    nlohmann::json JsonMappingReader::deployDraft(const std::string& mapFilePath) {
+    nlohmann::json JsonMappingReader::deployDraft(const std::string& mapFilePath, bool enableVersioning) {
         std::string draftPath = getDraftPath(mapFilePath);
         if (!fs::exists(draftPath))
             return nlohmann::json();
@@ -130,7 +130,7 @@ namespace mqtt::lib {
         }
 
         // 2. Backup current active file
-        if (fs::exists(mapFilePath)) {
+        if (enableVersioning && fs::exists(mapFilePath)) {
             fs::path versionDir = fs::path(mapFilePath).parent_path() / "versions";
             if (!fs::exists(versionDir)) {
                 fs::create_directories(versionDir);
