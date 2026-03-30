@@ -51,9 +51,7 @@
 namespace mqtt::mqttintegrator {
 
     class SocketContextFactory : public core::socket::stream::SocketContextFactory {
-    public:
-        explicit SocketContextFactory();
-
+    private:
         core::socket::stream::SocketContext* create(core::socket::stream::SocketConnection* socketConnection) final;
     };
 

@@ -51,7 +51,7 @@
 namespace mqtt::bridge {
 
     class SocketContextFactory : public core::socket::stream::SocketContextFactory {
-    public:
+    private:
         core::socket::stream::SocketContext* create(core::socket::stream::SocketConnection* socketConnection) final;
     };
 

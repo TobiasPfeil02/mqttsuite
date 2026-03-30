@@ -60,9 +60,9 @@ namespace mqtt::mqttbroker {
     public:
         explicit SocketContextFactory(const std::shared_ptr<iot::mqtt::server::broker::Broker> broker);
 
+    private:
         core::socket::stream::SocketContext* create(core::socket::stream::SocketConnection* socketConnection) final;
 
-    private:
         const std::shared_ptr<iot::mqtt::server::broker::Broker> broker;
     };
 

@@ -56,9 +56,6 @@
 
 namespace mqtt::mqttintegrator {
 
-    SocketContextFactory::SocketContextFactory() {
-    }
-
     core::socket::stream::SocketContext* SocketContextFactory::create(core::socket::stream::SocketConnection* socketConnection) {
         mqtt::lib::ConfigMqttIntegrator* config = utils::Config::configRoot.getSubCommand<mqtt::lib::ConfigMqttIntegrator>();
 

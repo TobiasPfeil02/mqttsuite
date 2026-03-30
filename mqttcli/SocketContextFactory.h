@@ -51,9 +51,7 @@
 namespace mqtt::mqttcli {
 
     class SocketContextFactory : public core::socket::stream::SocketContextFactory {
-    public:
-        SocketContextFactory() = default;
-
+    private:
         core::socket::stream::SocketContext* create(core::socket::stream::SocketConnection* socketConnection) final;
     };
 
