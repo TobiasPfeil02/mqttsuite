@@ -36,13 +36,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# Additional targets to perform clang-format
+# Additional targets to perform prettier
 
-# Get all project files if(NOT CHECK_CXX_SOURCE_FILES) message( FATAL_ERROR
-# "Variable CHECK_CXX_SOURCE_FILES not defined - set it to the list of files to
-# auto-format" ) return() endif()
-
-# Adding clang-format check and formatter if found
 find_program(BRETTIER "prettier")
 
 if(BRETTIER)
@@ -68,15 +63,19 @@ if(BRETTIER)
         )
     endfunction(filter_items)
 
-    filter_items(CHECK_JS_SOURCE_FILES "/build/")
-    filter_items(CHECK_JS_SOURCE_FILES "/json-schema-validator/")
+    filter_items(CHECK_CSS_SOURCE_FILES "/build/")
+    filter_items(CHECK_CSS_SOURCE_FILES "/json-schema-validator/")
+    filter_items(CHECK_CSS_SOURCE_FILES "(^|/)html/.*\\.(css)$")
 
-    add_custom_command(
-        OUTPUT format-cmds
-        APPEND
-        COMMAND ${BRETTIER} --tab-width 4 --write ${CHECK_CSS_SOURCE_FILES}
-        COMMENT "Auto formatting of all cascading stylesheet (css) files"
-    )
+    list(LENGTH CHECK_CSS_SOURCE_FILES CHECK_CSS_SOURCE_FILES_LEN)
+    if(CHECK_CSS_SOURCE_FILES_LEN GREATER 0)
+        add_custom_command(
+            OUTPUT format-cmds
+            APPEND
+            COMMAND ${BRETTIER} --tab-width 4 --write ${CHECK_CSS_SOURCE_FILES}
+            COMMENT "Auto formatting of all cascading stylesheet (css) files"
+        )
+    endif(CHECK_CSS_SOURCE_FILES_LEN GREATER 0)
 else(BRETTIER)
     message(
         WARNING

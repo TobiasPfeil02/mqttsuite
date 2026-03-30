@@ -70,14 +70,18 @@ if(JS_BEAUTIFY)
 
     filter_items(CHECK_JS_SOURCE_FILES "/build/")
     filter_items(CHECK_JS_SOURCE_FILES "/json-schema-validator/")
+    filter_items(CHECK_JS_SOURCE_FILES "(^|/)html/.*\\.(js)$")
 
-    add_custom_command(
-        OUTPUT format-cmds
-        APPEND
-        COMMAND ${JS_BEAUTIFY} --disable-preserve-newlines --replace
-                ${CHECK_JS_SOURCE_FILES}
-        COMMENT "Auto formatting of all java script files"
-    )
+    list(LENGTH CHECK_JS_SOURCE_FILES CHECK_JS_SOURCE_FILES_LEN)
+    if(CHECK_JS_SOURCE_FILES_LEN GREATER 0)
+        add_custom_command(
+            OUTPUT format-cmds
+            APPEND
+            COMMAND ${JS_BEAUTIFY} --disable-preserve-newlines --replace
+                    ${CHECK_JS_SOURCE_FILES}
+            COMMENT "Auto formatting of all java script files"
+        )
+    endif(CHECK_JS_SOURCE_FILES_LEN GREATER 0)
 else(JS_BEAUTIFY)
     message(
         WARNING
