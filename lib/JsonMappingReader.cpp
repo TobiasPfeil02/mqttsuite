@@ -68,33 +68,6 @@ namespace mqtt::lib {
 
     namespace fs = std::filesystem;
 
-    nlohmann::json JsonMappingReader::readMappingFromFile(const std::string& mapFilePath) {
-        nlohmann::json mapFileJson;
-
-        if (!mapFilePath.empty()) {
-            std::ifstream mapFile(mapFilePath);
-
-            if (mapFile.is_open()) {
-                VLOG(1) << "MappingFilePath: " << mapFilePath;
-
-                try {
-                    mapFile >> mapFileJson;
-                } catch (const std::exception& e) {
-                    mapFile.close();
-
-                    VLOG(1) << "JSON map file parsing failed: " << e.what() << " at " << mapFile.tellg();
-                    throw std::runtime_error("JSON map file parsing faile at: " + std::to_string(mapFile.tellg()) + "\nWhat: " + e.what());
-                }
-
-                mapFile.close();
-            } else {
-                VLOG(1) << "MappingFile: " << mapFilePath << " not found";
-            }
-        }
-
-        return mapFileJson;
-    }
-
     std::string JsonMappingReader::getDraftPath(const std::string& mapFilePath) {
         return mapFilePath + ".draft";
     }

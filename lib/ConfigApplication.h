@@ -80,6 +80,9 @@ namespace mqtt::lib {
 
         CLI::Option* mappingFileOpt;
         CLI::Option* sessionStoreOpt;
+
+    private:
+        static nlohmann::json readMappingFromFile(const std::string& mapFilePath);
     };
 
     class ConfigMqttBroker : public ConfigApplication {

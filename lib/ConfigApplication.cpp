@@ -41,11 +41,15 @@
 
 #include "ConfigApplication.h"
 
-#include "JsonMappingReader.h"
 #include "MqttMapper.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include "log/Logger.h"
+
+#include <exception>
+#include <fstream>
+#include <map>
 #include <stdexcept>
 
 #endif
@@ -61,7 +65,7 @@ namespace mqtt::lib {
                   "--mqtt-mapping-file",
                   [this](const std::string& mappingFile) {
                       try {
-                          mqttMapper->setMapping(JsonMappingReader::readMappingFromFile(mappingFile));
+                          mqttMapper->setMapping(readMappingFromFile(mappingFile));
                       } catch (std::runtime_error& e) {
                           throw CLI::ValidationError(
                               getName(), std::string("Activating mapping description in '" + mappingFile + "' failed\nWhat: " + e.what()));
@@ -93,7 +97,7 @@ namespace mqtt::lib {
     bool ConfigApplication::setMappingFile(const std::string& mappingFile) { // can throw
         setDefaultValue(mappingFileOpt, mappingFile);
 
-        return setMapping(JsonMappingReader::readMappingFromFile(mappingFile));
+        return setMapping(readMappingFromFile(mappingFile));
     }
 
     std::string ConfigApplication::getMappingFilename() const {
@@ -108,6 +112,35 @@ namespace mqtt::lib {
 
     const std::shared_ptr<MqttMapper> ConfigApplication::getMqttMapper() const {
         return mqttMapper;
+    }
+
+    nlohmann::json ConfigApplication::readMappingFromFile(const std::string& mapFilePath) {
+        nlohmann::json mappingJson;
+
+        if (!mapFilePath.empty()) {
+            std::ifstream mapFile(mapFilePath);
+
+            if (mapFile.is_open()) {
+                VLOG(1) << "Mapping file: " << mapFilePath;
+
+                try {
+                    mapFile >> mappingJson;
+
+                    VLOG(1) << "Mapping file parsing seccess";
+                } catch (const std::exception& e) {
+                    mapFile.close();
+
+                    VLOG(1) << "Mapping file parsing failed: " << e.what() << " at " << mapFile.tellg();
+                    throw std::runtime_error("JSON map file parsing faile at: " + std::to_string(mapFile.tellg()) + "\nWhat: " + e.what());
+                }
+
+                mapFile.close();
+            } else {
+                VLOG(1) << "Mapping file: " << mapFilePath << " not found";
+            }
+        }
+
+        return mappingJson;
     }
 
     ConfigMqttBroker::ConfigMqttBroker(utils::SubCommand* parent)

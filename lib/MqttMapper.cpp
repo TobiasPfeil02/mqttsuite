@@ -91,7 +91,7 @@
 
 namespace mqtt::lib {
 
-#include "mapping-schema.json.h" // definition of mappingJsonSchemaString
+#include "mapping-schema.json.h" // definition of 'static const std::string mappingJsonSchemaString;'
 
     const nlohmann::json_schema::json_validator
         MqttMapper::validator(nlohmann::json::parse(mappingJsonSchemaString), nullptr, nlohmann::json_schema::default_string_format_check);
@@ -123,7 +123,6 @@ namespace mqtt::lib {
         injaEnvironment = new inja::Environment;
 
         nlohmann::json defaultPatch;
-
         try {
             defaultPatch = validator.validate(mappingJson);
         } catch (const std::exception& e) {
