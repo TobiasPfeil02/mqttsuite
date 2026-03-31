@@ -222,7 +222,8 @@ namespace mqtt::lib {
         }
 
         void writeJsonAtomically(const fs::path& targetPath, const nlohmann::json& j) {
-            fs::create_directories(targetPath.parent_path());
+            const fs::path parentDir = targetPath.parent_path().empty() ? fs::path(".") : targetPath.parent_path();
+            fs::create_directories(parentDir);
 
             const fs::path tempPath = targetPath.string() + ".tmp." + makeUniqueId();
             {
@@ -235,7 +236,7 @@ namespace mqtt::lib {
 
             fsyncPath(tempPath);
             fs::rename(tempPath, targetPath);
-            fsyncDirectory(targetPath.parent_path());
+            fsyncDirectory(parentDir);
         }
 
         void ensureMetaObject(nlohmann::json& mapping) {
@@ -300,7 +301,8 @@ namespace mqtt::lib {
 
         void ensureExpectedActiveRevision(const std::optional<std::uint64_t>& expectedActiveRevision, std::uint64_t activeRevision) {
             if (expectedActiveRevision.has_value() && expectedActiveRevision.value() != activeRevision) {
-                throw OCCConflictError("Active revision mismatch");
+                throw OCCConflictError(
+                    "Active revision conflict: expected " + std::to_string(expectedActiveRevision.value()) + ", got " + std::to_string(activeRevision));
             }
         }
 
@@ -607,6 +609,12 @@ namespace mqtt::lib {
         fs::path versionDir = getVersionDir(mapFilePath);
         std::string baseName = toMapPath(mapFilePath).filename().string();
 
+        struct VersionSortEntry {
+            VersionEntry entry;
+            fs::file_time_type mtime;
+        };
+        std::vector<VersionSortEntry> versionEntries;
+
         if (!fs::exists(versionDir))
             return history;
 
@@ -614,7 +622,7 @@ namespace mqtt::lib {
             if (entry.path().filename().string().starts_with(baseName + ".")) {
                 VersionEntry v;
                 v.filename = entry.path().string();
-                // Extract ID (timestamp) from filename extension
+                // Version ID is opaque and may contain non-numeric characters.
                 v.id = entry.path().extension().string().substr(1);
 
                 // Peek inside JSON to get the comment
@@ -631,31 +639,25 @@ namespace mqtt::lib {
                 } catch (...) {
                 }
 
-                // Fallback date if not in meta
+                // Preserve compatibility when metadata has no created timestamp.
                 if (v.date.empty()) {
-                    try {
-                        long long ts = std::stoll(v.id);
-                        std::time_t t = static_cast<std::time_t>(ts);
-                        std::stringstream ss;
-                        ss << std::put_time(std::gmtime(&t), "%Y-%m-%dT%H:%M:%SZ");
-                        v.date = ss.str();
-                    } catch (...) {
-                        v.date = "Unknown";
-                    }
+                    v.date = "Unknown";
                 }
 
-                history.push_back(v);
+                versionEntries.push_back(VersionSortEntry{std::move(v), entry.last_write_time()});
             }
         }
-        // Sort by ID (descending)
-        std::sort(history.begin(), history.end(), [](const VersionEntry& a, const VersionEntry& b) {
-            // String comparison of timestamps works if they are same length, but better to be safe
-            try {
-                return std::stoll(a.id) > std::stoll(b.id);
-            } catch (...) {
-                return a.id > b.id;
-            }
+
+        // Sort by file modification time (descending) to avoid assumptions about ID format.
+        std::sort(versionEntries.begin(), versionEntries.end(), [](const VersionSortEntry& a, const VersionSortEntry& b) {
+            return a.mtime > b.mtime;
         });
+
+        history.reserve(versionEntries.size());
+        for (auto& item : versionEntries) {
+            history.push_back(std::move(item.entry));
+        }
+
         return history;
     }
 

@@ -140,7 +140,13 @@ namespace {
         }
 
         try {
-            return static_cast<std::uint64_t>(std::stoull(value));
+            std::size_t pos = 0;
+            const auto parsed = std::stoull(value, &pos);
+            if (pos != value.size()) {
+                return std::nullopt;
+            }
+
+            return static_cast<std::uint64_t>(parsed);
         } catch (...) {
             return std::nullopt;
         }
@@ -364,7 +370,7 @@ namespace mqtt::lib::admin {
                 const std::uint64_t revision = extractRevisionFromMapping(active).value_or(0);
                 setRevisionHeaders(res, revision);
 
-                res->status(200).json({{"revision", revision}, {"mapping", active}});
+                res->status(200).json(active);
             } catch (const std::exception& e) {
                 res->status(500).json({{"error", "Failed to load configuration"}, {"details", e.what()}});
             }
