@@ -84,6 +84,9 @@ namespace mqtt::lib {
         static std::string getDraftsDirPath(const std::string& mapFilePath);
         static std::string getDraftPath(const std::string& mapFilePath, const std::string& draftId);
         static std::string createDraftFromActive(const std::string& mapFilePath, const std::string& draftId = "");
+        static std::string createDraftFromMapping(const std::string& mapFilePath,
+                              const nlohmann::json& activeMapping,
+                              const std::string& draftId = "");
         static std::vector<nlohmann::json> listDrafts(const std::string& mapFilePath);
         static nlohmann::json readDraft(const std::string& mapFilePath, const std::string& draftId);
         static nlohmann::json replaceDraft(const std::string& mapFilePath, const std::string& draftId, const nlohmann::json& mapping, std::optional<int64_t> expectedDraftRevision = std::nullopt);
