@@ -134,16 +134,17 @@ namespace mqtt::mqttintegrator::lib {
     }
 
     void Mqtt::onPublish(const iot::mqtt::packets::Publish& publish) {
-        auto [immediatePublishes, scheduledPublishes] = mqttMapper->getMappings(publish);
+        const auto& [immediatePublishes, scheduledPublishes] = mqttMapper->getMappings(publish);
 
         for (const mqtt::lib::MqttMapper::ScheduledPublish& delayedPublish : scheduledPublishes) {
             delayedQueue.delayPublish(delayedPublish.delay, delayedPublish.publish);
         }
 
-        for (const iot::mqtt::packets::Publish& mappedPublish : immediatePublishes) {
-            sendPublish(mappedPublish.getTopic(), mappedPublish.getMessage(), mappedPublish.getQoS(), mappedPublish.getRetain());
+        for (const iot::mqtt::packets::Publish& immediatePublish : immediatePublishes) {
+            sendPublish(
+                immediatePublish.getTopic(), immediatePublish.getMessage(), immediatePublish.getQoS(), immediatePublish.getRetain());
 
-            onPublish(mappedPublish);
+            onPublish(immediatePublish);
         }
     }
 

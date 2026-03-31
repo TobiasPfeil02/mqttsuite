@@ -159,17 +159,20 @@ namespace mqtt::mqttbroker::lib {
         MqttModel::instance().publishMessage(publish.getTopic(), publish.getMessage(), publish.getQoS(), publish.getRetain());
 
         if (mqttMapper != nullptr) {
-            mqtt::lib::MqttMapper::MappedPublishes mappedPublishes = mqttMapper->getMappings(publish);
+            const auto& [immediatePublishes, scheduledPublishes] = mqttMapper->getMappings(publish);
 
-            for (const mqtt::lib::MqttMapper::ScheduledPublish& delayedPublish : mappedPublishes.second) {
+            for (const mqtt::lib::MqttMapper::ScheduledPublish& delayedPublish : scheduledPublishes) {
                 delayedQueue.delayPublish(delayedPublish.delay, delayedPublish.publish);
             }
 
-            for (const iot::mqtt::packets::Publish& mappedPublish : mappedPublishes.first) {
-                broker->publish(
-                    clientId, mappedPublish.getTopic(), mappedPublish.getMessage(), mappedPublish.getQoS(), mappedPublish.getRetain());
+            for (const iot::mqtt::packets::Publish& immediatePublish : immediatePublishes) {
+                broker->publish(clientId,
+                                immediatePublish.getTopic(),
+                                immediatePublish.getMessage(),
+                                immediatePublish.getQoS(),
+                                immediatePublish.getRetain());
 
-                onPublish(mappedPublish);
+                onPublish(immediatePublish);
             }
         }
     }
