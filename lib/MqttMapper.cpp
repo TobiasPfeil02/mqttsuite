@@ -199,20 +199,28 @@ namespace mqtt::lib {
         return mustReconnect;
     }
 
-    const nlohmann::json& MqttMapper::getMappingJson() const {
-        return mappingJson;
-    }
-
-    const nlohmann::json& MqttMapper::getMappingJsonUnpatched() const {
+    const nlohmann::json& MqttMapper::getMapping() const {
         return mappingJsonUnpatched;
     }
 
-    std::string MqttMapper::dump() {
-        return mappingJson.dump();
+    std::string MqttMapper::getClientId() const {
+        return mappingJson["connection"]["client_id"];
     }
 
-    const nlohmann::json& MqttMapper::getConnection() const {
-        return mappingJson["connection"];
+    uint16_t MqttMapper::getKeepAlive() const {
+        return mappingJson["connection"]["keep_alive"];
+    }
+
+    MqttMapper::ConnectParameter MqttMapper::getConnectPayload() const {
+        const nlohmann::json& connectionJson = mappingJson["connection"];
+
+        return std::make_tuple(connectionJson["clean_session"],
+                               connectionJson["will_topic"],
+                               connectionJson["will_message"],
+                               connectionJson["will_qos"],
+                               connectionJson["will_retain"],
+                               connectionJson["username"],
+                               connectionJson["password"]);
     }
 
     std::list<iot::mqtt::Topic> MqttMapper::extractSubscriptions() const {
@@ -453,9 +461,9 @@ namespace mqtt::lib {
         VLOG(1) << "    Delay: " << delay;
 
         if (delay < 0.0) {
-            mappedPublishes.first.emplace_back(0, topic, message, qoS, false, retain);
+            std::get<0>(mappedPublishes).emplace_back(0, topic, message, qoS, false, retain);
         } else {
-            mappedPublishes.second.push_back({delay, iot::mqtt::packets::Publish(0, topic, message, qoS, false, retain)});
+            std::get<1>(mappedPublishes).push_back({delay, iot::mqtt::packets::Publish(0, topic, message, qoS, false, retain)});
         }
     }
 
