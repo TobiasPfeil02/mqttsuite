@@ -46,11 +46,11 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include <cstdint>
 #include <nlohmann/json_fwd.hpp> // IWYU pragma: export
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <cstdint>
 #include <vector>
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
@@ -76,7 +76,7 @@ namespace mqtt::lib {
         JsonMappingReader() = delete;
 
     public:
-        static nlohmann::json readMappingFromFile(const std::string& mapFilePath);
+        //        static nlohmann::json readMappingFromFile(const std::string& mapFilePath);
 
         static nlohmann::json readActive(const std::string& mapFilePath);
         static std::uint64_t readActiveRevision(const std::string& mapFilePath);
@@ -84,13 +84,18 @@ namespace mqtt::lib {
         static std::string getDraftsDirPath(const std::string& mapFilePath);
         static std::string getDraftPath(const std::string& mapFilePath, const std::string& draftId);
         static std::string createDraftFromActive(const std::string& mapFilePath, const std::string& draftId = "");
-        static std::string createDraftFromMapping(const std::string& mapFilePath,
-                              const nlohmann::json& activeMapping,
-                              const std::string& draftId = "");
+        static std::string
+        createDraftFromMapping(const std::string& mapFilePath, const nlohmann::json& activeMapping, const std::string& draftId = "");
         static std::vector<nlohmann::json> listDrafts(const std::string& mapFilePath);
         static nlohmann::json readDraft(const std::string& mapFilePath, const std::string& draftId);
-        static nlohmann::json replaceDraft(const std::string& mapFilePath, const std::string& draftId, const nlohmann::json& mapping, std::optional<int64_t> expectedDraftRevision = std::nullopt);
-        static nlohmann::json patchDraft(const std::string& mapFilePath, const std::string& draftId, const nlohmann::json& patchOps, std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json replaceDraft(const std::string& mapFilePath,
+                                           const std::string& draftId,
+                                           const nlohmann::json& mapping,
+                                           std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json patchDraft(const std::string& mapFilePath,
+                                         const std::string& draftId,
+                                         const nlohmann::json& patchOps,
+                                         std::optional<int64_t> expectedDraftRevision = std::nullopt);
         static void discardDraft(const std::string& mapFilePath, const std::string& draftId);
 
         static void saveDraft(const std::string& mapFilePath, const nlohmann::json& content);

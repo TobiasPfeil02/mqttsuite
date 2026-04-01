@@ -211,6 +211,10 @@ namespace mqtt::lib {
         return mappingJson["connection"]["keep_alive"];
     }
 
+    uint64_t MqttMapper::getRevision() const {
+        return mappingJson["meta"]["revision"];
+    }
+
     MqttMapper::ConnectParameter MqttMapper::getConnectPayload() const {
         const nlohmann::json& connectionJson = mappingJson["connection"];
 

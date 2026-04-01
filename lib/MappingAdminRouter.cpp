@@ -54,12 +54,12 @@
 #include "nlohmann/json-schema.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <exception>
-#include <cstdint>
 #include <iomanip>
-#include <optional>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <utility>
 
@@ -240,7 +240,7 @@ namespace {
         try {
             std::forward<MutationFn>(mutation)();
         } catch (const mqtt::lib::EntityNotFoundError&) {
-            mqtt::lib::JsonMappingReader::createDraftFromMapping(mapFilePath, configApplication->getMqttMapper()->getMappingJsonUnpatched(), draftId);
+            mqtt::lib::JsonMappingReader::createDraftFromMapping(mapFilePath, configApplication->getMqttMapper()->getMapping(), draftId);
             std::forward<MutationFn>(mutation)();
         }
     }
@@ -261,14 +261,10 @@ namespace {
 
             if (mappingContext->persistActiveMapping) {
                 newMappingJson = mqtt::lib::JsonMappingReader::deployDraft(
-                    mappingContext->mappingFilePath,
-                    draftId,
-                    mappingContext->enableVersioning,
-                    expectedRevision);
+                    mappingContext->mappingFilePath, draftId, mappingContext->enableVersioning, expectedRevision);
                 revision = mqtt::lib::JsonMappingReader::readActiveRevision(mappingContext->mappingFilePath);
             } else {
-                const nlohmann::json activeMapping = configApplication->getMqttMapper()->getMappingJsonUnpatched();
-                const std::uint64_t activeRevision = extractRevisionFromMapping(activeMapping);
+                const std::uint64_t activeRevision = configApplication->getMqttMapper()->getRevision();
 
                 if (expectedRevision.has_value() && expectedRevision.value() != activeRevision) {
                     throw mqtt::lib::OCCConflictError("Active revision mismatch");
@@ -317,9 +313,10 @@ namespace {
             nlohmann::json conflictResponse = {{"error", "Revision conflict"}, {"details", e.what()}};
             try {
                 if (mappingContext->persistActiveMapping) {
-                    conflictResponse["current_revision"] = mqtt::lib::JsonMappingReader::readActiveRevision(mappingContext->mappingFilePath);
+                    conflictResponse["current_revision"] =
+                        mqtt::lib::JsonMappingReader::readActiveRevision(mappingContext->mappingFilePath);
                 } else {
-                    conflictResponse["current_revision"] = extractRevisionFromMapping(configApplication->getMqttMapper()->getMappingJsonUnpatched());
+                    conflictResponse["current_revision"] = extractRevisionFromMapping(configApplication->getMqttMapper()->getMapping());
                 }
             } catch (...) {
             }
@@ -357,8 +354,8 @@ namespace mqtt::lib::admin {
         // GET /config (active mapping)
         api.get("/config", [configApplication] APPLICATION(req, res) {
             try {
-                const nlohmann::json active = configApplication->getMqttMapper()->getMappingJsonUnpatched();
-                const std::uint64_t revision = extractRevisionFromMapping(active);
+                const nlohmann::json active = configApplication->getMqttMapper()->getMapping();
+                const std::uint64_t revision = configApplication->getMqttMapper()->getRevision();
                 setRevisionHeaders(res, revision);
 
                 res->status(200).json(active);
@@ -377,8 +374,9 @@ namespace mqtt::lib::admin {
 
                 const std::string draftId = JsonMappingReader::createDraftFromMapping(
                     mappingContext->mappingFilePath,
-                    configApplication->getMqttMapper()->getMappingJsonUnpatched(),
-                    (body.is_object() && body.contains("draft_id") && body["draft_id"].is_string()) ? body["draft_id"].get<std::string>() : "");
+                    configApplication->getMqttMapper()->getMapping(),
+                    (body.is_object() && body.contains("draft_id") && body["draft_id"].is_string()) ? body["draft_id"].get<std::string>()
+                                                                                                    : "");
 
                 const nlohmann::json draft = JsonMappingReader::readDraft(mappingContext->mappingFilePath, draftId);
                 res->status(201).json(draft);
@@ -429,7 +427,8 @@ namespace mqtt::lib::admin {
                 }
 
                 draftId = resolveDraftId(req, &body);
-                const nlohmann::json draft = JsonMappingReader::patchDraft(mappingContext->mappingFilePath, draftId, body["patch"], expectedDraftRevision);
+                const nlohmann::json draft =
+                    JsonMappingReader::patchDraft(mappingContext->mappingFilePath, draftId, body["patch"], expectedDraftRevision);
                 res->status(200).json(draft);
             } catch (const EntityNotFoundError& e) {
                 res->status(404).json({{"error", "Draft not found"}, {"details", e.what()}});
@@ -458,7 +457,8 @@ namespace mqtt::lib::admin {
                 }
 
                 draftId = resolveDraftId(req, &body);
-                const nlohmann::json draft = JsonMappingReader::replaceDraft(mappingContext->mappingFilePath, draftId, body["mapping"], expectedDraftRevision);
+                const nlohmann::json draft =
+                    JsonMappingReader::replaceDraft(mappingContext->mappingFilePath, draftId, body["mapping"], expectedDraftRevision);
                 res->status(200).json(draft);
             } catch (const EntityNotFoundError& e) {
                 res->status(404).json({{"error", "Draft not found"}, {"details", e.what()}});
@@ -621,10 +621,7 @@ namespace mqtt::lib::admin {
                 const std::optional<std::uint64_t> expectedRevision = resolveExpectedRevision(req, &jsonBody);
 
                 nlohmann::json rolledbackMappingJson = JsonMappingReader::rollbackTo(
-                    mappingContext->mappingFilePath,
-                    versionId,
-                    mappingContext->enableVersioning,
-                    expectedRevision);
+                    mappingContext->mappingFilePath, versionId, mappingContext->enableVersioning, expectedRevision);
 
                 bool mustReconnect = configApplication->setMapping(rolledbackMappingJson); // throws in case of an error during loading
                                                                                            // or validation. This exeption is catched
