@@ -3,6 +3,7 @@
   "type": ["object", "null"],
   "default": {
     "meta": {
+      "revision": 0,
       "version": "0",
       "comment": "New mapping description",
       "author": "anonymous"
@@ -28,11 +29,17 @@
     "meta": {
       "type": "object",
       "default": {
+        "revision": 0,
         "version": "0",
         "comment": "New mapping description",
         "author": "anonymous"
       },
       "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
         "version": {
           "type": "string",
           "description": "Auto-generated timestamp or ID",
