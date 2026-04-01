@@ -75,31 +75,22 @@ namespace {
         bool enableVersioning{false};
     };
 
-    std::optional<std::uint64_t> extractRevisionFromMapping(const nlohmann::json& mapping) {
-        if (!mapping.is_object() || !mapping.contains("meta") || !mapping["meta"].is_object() || !mapping["meta"].contains("revision")) {
-            return std::nullopt;
+    std::uint64_t extractRevisionFromMapping(const nlohmann::json& mapping) {
+        if (!mapping.is_object() || !mapping.contains("meta") || !mapping["meta"].is_object()) {
+            return 0;
         }
 
-        const nlohmann::json& revisionValue = mapping["meta"]["revision"];
-        try {
-            if (revisionValue.is_number_unsigned()) {
-                return revisionValue.get<std::uint64_t>();
-            }
-
-            if (revisionValue.is_number_integer()) {
-                const auto value = revisionValue.get<int64_t>();
-                if (value >= 0) {
-                    return static_cast<std::uint64_t>(value);
-                }
-            }
-
-            if (revisionValue.is_string()) {
-                return static_cast<std::uint64_t>(std::stoull(revisionValue.get<std::string>()));
-            }
-        } catch (...) {
+        const nlohmann::json& revisionValue = mapping["meta"].value("revision", nlohmann::json(0));
+        if (revisionValue.is_number_unsigned()) {
+            return revisionValue.get<std::uint64_t>();
         }
 
-        return std::nullopt;
+        if (revisionValue.is_number_integer()) {
+            const auto value = revisionValue.get<std::int64_t>();
+            return value >= 0 ? static_cast<std::uint64_t>(value) : 0;
+        }
+
+        return 0;
     }
 
     std::string makeVersionToken() {
@@ -277,7 +268,7 @@ namespace {
                 revision = mqtt::lib::JsonMappingReader::readActiveRevision(mappingContext->mappingFilePath);
             } else {
                 const nlohmann::json activeMapping = configApplication->getMqttMapper()->getMappingJsonUnpatched();
-                const std::uint64_t activeRevision = extractRevisionFromMapping(activeMapping).value_or(0);
+                const std::uint64_t activeRevision = extractRevisionFromMapping(activeMapping);
 
                 if (expectedRevision.has_value() && expectedRevision.value() != activeRevision) {
                     throw mqtt::lib::OCCConflictError("Active revision mismatch");
@@ -328,7 +319,7 @@ namespace {
                 if (mappingContext->persistActiveMapping) {
                     conflictResponse["current_revision"] = mqtt::lib::JsonMappingReader::readActiveRevision(mappingContext->mappingFilePath);
                 } else {
-                    conflictResponse["current_revision"] = extractRevisionFromMapping(configApplication->getMqttMapper()->getMappingJsonUnpatched()).value_or(0);
+                    conflictResponse["current_revision"] = extractRevisionFromMapping(configApplication->getMqttMapper()->getMappingJsonUnpatched());
                 }
             } catch (...) {
             }
@@ -367,7 +358,7 @@ namespace mqtt::lib::admin {
         api.get("/config", [configApplication] APPLICATION(req, res) {
             try {
                 const nlohmann::json active = configApplication->getMqttMapper()->getMappingJsonUnpatched();
-                const std::uint64_t revision = extractRevisionFromMapping(active).value_or(0);
+                const std::uint64_t revision = extractRevisionFromMapping(active);
                 setRevisionHeaders(res, revision);
 
                 res->status(200).json(active);
