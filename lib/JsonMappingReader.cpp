@@ -54,20 +54,21 @@
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <compare>
 #include <ctime>
-#include <exception>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <log/Logger.h>
 #include <map>
+#include <nlohmann/detail/json_ref.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <sys/file.h>
 #include <system_error>
 #include <unistd.h>
+#include <utility>
 
 #endif
 
@@ -438,14 +439,7 @@ namespace mqtt::lib {
         }
 
     } // namespace
-    /*
-        nlohmann::json JsonMappingReader::readMappingFromFile(const std::string& mapFilePath) {
-            if (mapFilePath.empty()) {
-                throw std::runtime_error("MappingFile not set");
-            }
-            return readJsonFromFile(mapFilePath);
-        }
-    */
+
     nlohmann::json JsonMappingReader::readActive(const std::string& mapFilePath) {
         SharedFileLock lock(mapFilePath);
         return readActiveNoLock(mapFilePath);

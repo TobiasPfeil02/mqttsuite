@@ -104,7 +104,6 @@ namespace mqtt::lib {
 
         static const nlohmann::json validate(const nlohmann::json& json);
         static const nlohmann::json validate(const nlohmann::json& json, nlohmann::json_schema::basic_error_handler& err);
-        static const nlohmann::json patch(const nlohmann::json& json);
 
     private:
         static void

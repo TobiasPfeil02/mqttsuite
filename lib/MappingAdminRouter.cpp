@@ -58,10 +58,10 @@
 #include <ctime>
 #include <exception>
 #include <iomanip>
-#include <memory>
 #include <optional>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 // IWYU pragma: no_include <nlohmann/detail/json_ref.hpp>
 
@@ -205,7 +205,7 @@ namespace {
 
     std::optional<int64_t> readCurrentDraftRevisionSafe(const std::string& mapFilePath, const std::string& draftId) {
         try {
-            const nlohmann::json draftEnvelope = mqtt::lib::JsonMappingReader::readDraft(mapFilePath, draftId);
+            nlohmann::json draftEnvelope = mqtt::lib::JsonMappingReader::readDraft(mapFilePath, draftId);
             return extractDraftRevisionFromEnvelope(draftEnvelope);
         } catch (...) {
             return std::nullopt;
@@ -290,7 +290,8 @@ namespace {
                 mqtt::lib::JsonMappingReader::discardDraft(mappingContext->mappingFilePath, draftId);
             }
 
-            const bool mustReconnect = configApplication->setMapping(newMappingJson);
+            const bool mustReconnect = configApplication->getMqttMapper()->setMapping(newMappingJson);
+            bool mappingPersisted = configApplication->persistMapping();
 
             mqtt::lib::admin::ReloadResult reloadResult;
             if (onDeploy) {
@@ -298,7 +299,7 @@ namespace {
             }
             setRevisionHeaders(res, revision);
 
-            res->status(200).json({{"status", "deploy-ack"},
+            res->status(200).json({{"status", mappingPersisted ? "persit-ack" : "deploy-ack"},
                                    {"draft_id", draftId},
                                    {"revision", revision},
                                    {"reload_mode", reloadResult.mode},
@@ -326,10 +327,10 @@ namespace {
         }
     }
 
-    std::shared_ptr<AdminMappingContext> buildAdminMappingContext(mqtt::lib::ConfigApplication* configApplication) {
+    std::shared_ptr<AdminMappingContext> buildAdminMappingContext([[maybe_unused]] mqtt::lib::ConfigApplication* configApplication) {
         auto context = std::make_shared<AdminMappingContext>();
 
-        context->mappingFilePath = configApplication->getMappingFilename();
+        context->mappingFilePath = "path"; // configApplication->getMappingFilename();
         context->persistActiveMapping = !context->mappingFilePath.empty();
         context->enableVersioning = context->persistActiveMapping;
         return context;
@@ -623,9 +624,9 @@ namespace mqtt::lib::admin {
                 nlohmann::json rolledbackMappingJson = JsonMappingReader::rollbackTo(
                     mappingContext->mappingFilePath, versionId, mappingContext->enableVersioning, expectedRevision);
 
-                bool mustReconnect = configApplication->setMapping(rolledbackMappingJson); // throws in case of an error during loading
-                                                                                           // or validation. This exeption is catched
-                                                                                           // in the MappingAdminRouter
+                bool mustReconnect = configApplication->getMqttMapper()->setMapping(rolledbackMappingJson);
+                bool mappingPersisted = configApplication->persistMapping();
+
                 ReloadResult reloadResult;
                 if (onDeploy) {
                     reloadResult = onDeploy(mustReconnect); // Trigger hot-reload
@@ -634,7 +635,7 @@ namespace mqtt::lib::admin {
                 const std::uint64_t revision = JsonMappingReader::readActiveRevision(mappingContext->mappingFilePath);
                 setRevisionHeaders(res, revision);
 
-                res->status(200).json({{"status", "deploy-ack"},
+                res->status(200).json({{"status", mappingPersisted ? "persit-ack" : "deploy-ack"},
                                        {"revision", revision},
                                        {"reload_mode", reloadResult.mode},
                                        {"instances", reloadResult.instances},

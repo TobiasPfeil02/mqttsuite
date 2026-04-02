@@ -68,12 +68,15 @@ namespace mqtt::lib {
         ConfigApplication& setSessionStore(const std::string& sessionStore);
         std::string getSessionStore() const;
 
-        bool setMappingFile(const std::string& mappingFile); // can throw
-        std::string getMappingFilename() const;
-
-        bool setMapping(const nlohmann::json& json); // can throw
-
         const std::shared_ptr<MqttMapper> getMqttMapper() const;
+        ConfigApplication* setMappingFile(const std::string& mappingFile); // can throw
+        ConfigApplication* setMapping(const std::string& mapping);         // can throw
+        std::string getMapping(int indent = 2) const;
+
+        bool persistMapping() const;
+
+    private:
+        bool loadMapping() const;
 
     protected:
         std::shared_ptr<MqttMapper> mqttMapper;
@@ -82,7 +85,7 @@ namespace mqtt::lib {
         CLI::Option* sessionStoreOpt;
 
     private:
-        static nlohmann::json readMappingFromFile(const std::string& mapFilePath);
+        std::string mappFilename;
     };
 
     class ConfigMqttBroker : public ConfigApplication {
