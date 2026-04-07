@@ -50,25 +50,24 @@
 // #include "nlohmann/json-schema.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
-#include <cctype>
 #include <cerrno>
+#include <cctype>
 #include <chrono>
-#include <cmath>
-#include <compare>
 #include <ctime>
-#include <fcntl.h>
+#include <exception>
 #include <filesystem>
+#include <fcntl.h>
 #include <fstream>
 #include <iomanip>
-#include <map>
-#include <nlohmann/detail/json_ref.hpp>
+#include <random>
 #include <sstream>
+#include <string_view>
 #include <stdexcept>
 #include <sys/file.h>
 #include <system_error>
 #include <unistd.h>
-#include <utility>
 
 #endif
 
@@ -78,7 +77,6 @@ namespace mqtt::lib {
 
     namespace {
 
-        constexpr const char* LEGACY_DRAFT_ID = "default";
         constexpr std::size_t MAX_HISTORY_ENTRIES = 50;
 
         std::atomic<std::uint64_t> idCounter{0};
@@ -86,7 +84,15 @@ namespace mqtt::lib {
         class FileLock {
         public:
             explicit FileLock(const std::string& mapFilePath, int lockType) {
-                const std::string lockPath = mapFilePath + ".lock";
+                const std::string lockPath = [mapFilePath]() {
+                    if (!mapFilePath.empty()) {
+                        return mapFilePath + ".lock";
+                    }
+
+                    const fs::path lockDir = fs::temp_directory_path() / "mqttsuite" / "admin";
+                    fs::create_directories(lockDir);
+                    return (lockDir / "drafts.lock").string();
+                }();
                 fd = ::open(lockPath.c_str(), O_CREAT | O_RDWR, 0644);
                 if (fd < 0) {
                     throw std::system_error(errno, std::generic_category(), "open lock file failed: " + lockPath);
@@ -116,16 +122,12 @@ namespace mqtt::lib {
 
         class ExclusiveFileLock : public FileLock {
         public:
-            explicit ExclusiveFileLock(const std::string& mapFilePath)
-                : FileLock(mapFilePath, LOCK_EX) {
-            }
+            explicit ExclusiveFileLock(const std::string& mapFilePath) : FileLock(mapFilePath, LOCK_EX) {}
         };
 
         class SharedFileLock : public FileLock {
         public:
-            explicit SharedFileLock(const std::string& mapFilePath)
-                : FileLock(mapFilePath, LOCK_SH) {
-            }
+            explicit SharedFileLock(const std::string& mapFilePath) : FileLock(mapFilePath, LOCK_SH) {}
         };
 
         std::string nowIsoUtc() {
@@ -137,10 +139,33 @@ namespace mqtt::lib {
         }
 
         std::string makeUniqueId() {
-            const auto ns =
-                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             const auto localCounter = idCounter.fetch_add(1, std::memory_order_relaxed);
             return std::to_string(ns) + "-" + std::to_string(static_cast<long long>(::getpid())) + "-" + std::to_string(localCounter);
+        }
+
+        std::string makeUuidV4() {
+            static thread_local std::mt19937_64 rng(std::random_device{}());
+            std::uniform_int_distribution<int> dist(0, 255);
+
+            std::array<unsigned char, 16> bytes{};
+            for (auto& b : bytes) {
+                b = static_cast<unsigned char>(dist(rng));
+            }
+
+            bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0F) | 0x40);
+            bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3F) | 0x80);
+
+            std::ostringstream ss;
+            ss << std::hex << std::setfill('0');
+            for (std::size_t i = 0; i < bytes.size(); ++i) {
+                ss << std::setw(2) << static_cast<int>(bytes[i]);
+                if (i == 3 || i == 5 || i == 7 || i == 9) {
+                    ss << '-';
+                }
+            }
+
+            return ss.str();
         }
 
         std::string sanitizeDraftId(const std::string& draftId) {
@@ -161,25 +186,12 @@ namespace mqtt::lib {
             return fs::path(mapFilePath);
         }
 
-        fs::path getDraftsDir(const std::string& mapFilePath) {
-            if (mapFilePath.empty()) {
-                return fs::path(".drafts");
-            }
-
-            const fs::path mapPath = toMapPath(mapFilePath);
-            return mapPath.parent_path() / "drafts" / mapPath.filename();
+        fs::path getDraftsDir() {
+            return fs::temp_directory_path() / "mqttsuite" / "admin" / "drafts";
         }
 
-        fs::path getDraftFile(const std::string& mapFilePath, const std::string& draftId) {
-            if (mapFilePath.empty()) {
-                if (draftId == LEGACY_DRAFT_ID) {
-                    return fs::path(".draft");
-                }
-
-                return getDraftsDir(mapFilePath) / (sanitizeDraftId(draftId) + ".json");
-            }
-
-            return getDraftsDir(mapFilePath) / (sanitizeDraftId(draftId) + ".json");
+        fs::path getDraftFile(const std::string& draftId) {
+            return getDraftsDir() / (sanitizeDraftId(draftId) + ".json");
         }
 
         fs::path getVersionDir(const std::string& mapFilePath) {
@@ -251,64 +263,64 @@ namespace mqtt::lib {
             }
         }
 
-        std::uint64_t extractRevision(const nlohmann::json& mapping) {
-            if (!mapping.contains("meta") || !mapping["meta"].is_object()) {
-                return 0;
-            }
+        void setDeployMetadata(nlohmann::json& mapping, std::uint64_t revision) {
+            ensureMetaObject(mapping);
+            auto& meta = mapping["meta"];
+            const std::string timestamp = nowIsoUtc();
 
-            const auto& meta = mapping["meta"];
-            if (!meta.contains("revision")) {
-                return 0;
+            if (!meta.contains("created") || !meta["created"].is_string()) {
+                meta["created"] = timestamp;
             }
-
-            try {
-                if (meta["revision"].is_number_unsigned()) {
-                    return meta["revision"].get<std::uint64_t>();
-                }
-                if (meta["revision"].is_number_integer()) {
-                    const auto value = meta["revision"].get<long long>();
-                    return value >= 0 ? static_cast<std::uint64_t>(value) : 0;
-                }
-                if (meta["revision"].is_string()) {
-                    return static_cast<std::uint64_t>(std::stoull(meta["revision"].get<std::string>()));
-                }
-            } catch (...) {
-            }
-
-            return 0;
+            meta["deployed_at"] = timestamp;
+            meta["version"] = makeUniqueId();
+            meta["revision"] = revision;
         }
 
-        int64_t extractDraftRevision(const nlohmann::json& envelope) {
-            if (envelope.contains("meta") && envelope["meta"].is_object() && envelope["meta"].contains("draft_revision") &&
-                envelope["meta"]["draft_revision"].is_number_integer()) {
-                return envelope["meta"]["draft_revision"].get<int64_t>();
+        int64_t readDraftRevisionValue(const nlohmann::json& envelope, const fs::path& draftPath) {
+            if (!envelope.contains("draft_revision") || !envelope["draft_revision"].is_number_integer()) {
+                throw std::runtime_error("Draft file is malformed: " + draftPath.string());
             }
 
-            if (envelope.contains("draft_revision") && envelope["draft_revision"].is_number_integer()) {
-                return envelope["draft_revision"].get<int64_t>();
+            return envelope["draft_revision"].get<int64_t>();
+        }
+
+        void ensureDraftEnvelopeShape(const nlohmann::json& envelope, const fs::path& draftPath) {
+            if (!envelope.is_object() || !envelope.contains("id") || !envelope["id"].is_string() || !envelope.contains("base_revision") ||
+                !envelope.contains("draft_revision") || !envelope.contains("mapping")) {
+                throw std::runtime_error("Draft file is malformed: " + draftPath.string());
             }
 
-            return 1;
+            (void) readDraftRevisionValue(envelope, draftPath);
         }
 
         void setDraftRevision(nlohmann::json& envelope, int64_t draftRevision) {
-            if (!envelope.contains("meta") || !envelope["meta"].is_object()) {
-                envelope["meta"] = nlohmann::json::object();
+            envelope["draft_revision"] = draftRevision;
+        }
+
+        std::string readMetaString(const nlohmann::json& document, std::string_view key) {
+            if (!document.contains("meta") || !document["meta"].is_object()) {
+                return "";
             }
-            envelope["meta"]["draft_revision"] = draftRevision;
+
+            const auto& meta = document["meta"];
+            if (!meta.contains(key) || !meta[key].is_string()) {
+                return "";
+            }
+
+            return meta[key].get<std::string>();
         }
 
         void ensureExpectedDraftRevision(const std::optional<int64_t>& expectedDraftRevision, int64_t currentRevision) {
             if (expectedDraftRevision.has_value() && expectedDraftRevision.value() != currentRevision) {
-                throw OCCConflictError("Draft revision conflict: expected " + std::to_string(expectedDraftRevision.value()) + ", got " +
-                                       std::to_string(currentRevision));
+                throw OCCConflictError(
+                    "Draft revision conflict: expected " + std::to_string(expectedDraftRevision.value()) + ", got " + std::to_string(currentRevision));
             }
         }
 
         void ensureExpectedActiveRevision(const std::optional<std::uint64_t>& expectedActiveRevision, std::uint64_t activeRevision) {
             if (expectedActiveRevision.has_value() && expectedActiveRevision.value() != activeRevision) {
-                throw OCCConflictError("Active revision conflict: expected " + std::to_string(expectedActiveRevision.value()) + ", got " +
-                                       std::to_string(activeRevision));
+                throw OCCConflictError(
+                    "Active revision conflict: expected " + std::to_string(expectedActiveRevision.value()) + ", got " + std::to_string(activeRevision));
             }
         }
 
@@ -318,49 +330,58 @@ namespace mqtt::lib {
             }
         }
 
-        nlohmann::json readActiveNoLock(const std::string& mapFilePath) {
-            return readJsonFromFile(toMapPath(mapFilePath));
-        }
-
         void validateMapping(const nlohmann::json& mapping) {
-            if (!mapping.is_object()) {
-                throw std::runtime_error("Mapping must be a JSON object");
-            }
             MqttMapper::validate(mapping);
         }
 
-        nlohmann::json readDraftEnvelopeNoLock(const std::string& mapFilePath, const std::string& draftId) {
-            const fs::path draftPath = getDraftFile(mapFilePath, draftId);
+        nlohmann::json readDraftEnvelopeNoLock(const std::string& draftId) {
+            const fs::path draftPath = getDraftFile(draftId);
+
             if (!fs::exists(draftPath)) {
                 throw EntityNotFoundError("Draft not found: " + sanitizeDraftId(draftId));
             }
 
             nlohmann::json draft = readJsonFromFile(draftPath);
-            if (!draft.is_object() || !draft.contains("mapping") || !draft["mapping"].is_object()) {
-                throw std::runtime_error("Draft file is malformed: " + draftPath.string());
-            }
-
-            if (!draft.contains("id") || !draft["id"].is_string()) {
-                draft["id"] = sanitizeDraftId(draftId);
-            }
-            if (!draft.contains("base_revision")) {
-                draft["base_revision"] = 0;
-            }
+            ensureDraftEnvelopeShape(draft, draftPath);
 
             return draft;
         }
 
-        void writeDraftEnvelopeNoLock(const std::string& mapFilePath, const std::string& draftId, const nlohmann::json& envelope) {
-            writeJsonAtomically(getDraftFile(mapFilePath, draftId), envelope);
+        void writeDraftEnvelopeNoLock(const std::string& draftId, const nlohmann::json& envelope) {
+            writeJsonAtomically(getDraftFile(draftId), envelope);
+        }
+
+        void removeDraftNoLock(const std::string& draftId) {
+            const fs::path draftPath = getDraftFile(draftId);
+            if (fs::exists(draftPath)) {
+                fs::remove(draftPath);
+            }
+        }
+
+        nlohmann::json buildDeployMappingNoLock(const std::string& draftId,
+                                                std::uint64_t activeRevision,
+                                                const std::optional<std::uint64_t>& expectedActiveRevision) {
+            ensureExpectedActiveRevision(expectedActiveRevision, activeRevision);
+
+            nlohmann::json draft = readDraftEnvelopeNoLock(draftId);
+            const std::uint64_t baseRevision = draft.value("base_revision", 0ULL);
+            ensureDraftBaseRevision(baseRevision, activeRevision);
+
+            nlohmann::json mapping = draft.at("mapping");
+            validateMapping(mapping);
+
+            setDeployMetadata(mapping, activeRevision + 1);
+            mapping["meta"]["source_draft_id"] = sanitizeDraftId(draftId);
+
+            return mapping;
         }
 
         template <typename MappingMutator>
-        nlohmann::json mutateDraftNoLock(const std::string& mapFilePath,
-                                         const std::string& draftId,
+        nlohmann::json mutateDraftNoLock(const std::string& draftId,
                                          std::optional<int64_t> expectedDraftRevision,
                                          MappingMutator&& mutator) {
-            nlohmann::json envelope = readDraftEnvelopeNoLock(mapFilePath, draftId);
-            const int64_t currentRevision = extractDraftRevision(envelope);
+            nlohmann::json envelope = readDraftEnvelopeNoLock(draftId);
+            const int64_t currentRevision = readDraftRevisionValue(envelope, getDraftFile(draftId));
 
             ensureExpectedDraftRevision(expectedDraftRevision, currentRevision);
 
@@ -371,7 +392,7 @@ namespace mqtt::lib {
             envelope["mapping"] = std::move(updatedMapping);
             envelope["updated"] = nowIsoUtc();
 
-            writeDraftEnvelopeNoLock(mapFilePath, draftId, envelope);
+            writeDraftEnvelopeNoLock(draftId, envelope);
             return envelope;
         }
 
@@ -399,11 +420,7 @@ namespace mqtt::lib {
             }
         }
 
-        void saveCurrentAsVersionNoLock(const std::string& mapFilePath, bool enableVersioning) {
-            if (!enableVersioning || !fs::exists(toMapPath(mapFilePath))) {
-                return;
-            }
-
+        void saveCurrentAsVersionNoLock(const std::string& mapFilePath, const nlohmann::json& activeMapping) {
             const fs::path versionDir = getVersionDir(mapFilePath);
             fs::create_directories(versionDir);
 
@@ -411,72 +428,48 @@ namespace mqtt::lib {
             const std::string versionId = makeUniqueId();
             const fs::path backupPath = versionDir / (baseName + "." + versionId);
 
-            fs::copy_file(toMapPath(mapFilePath), backupPath, fs::copy_options::none);
+            writeJsonAtomically(backupPath, activeMapping);
             pruneVersionsNoLock(mapFilePath);
         }
 
-        std::string
-        createDraftFromMappingNoLock(const std::string& mapFilePath, const nlohmann::json& activeMapping, const std::string& draftId) {
-            if (!activeMapping.is_object()) {
-                throw std::runtime_error("Active mapping must be a JSON object");
-            }
-
-            const std::string resolvedDraftId = draftId.empty() ? makeUniqueId() : sanitizeDraftId(draftId);
-            const fs::path draftPath = getDraftFile(mapFilePath, resolvedDraftId);
+        std::string createDraftFromMappingNoLock(const nlohmann::json& activeMapping,
+                                                 std::uint64_t activeRevision,
+                                                 const std::string& draftId) {
+            const std::string resolvedDraftId = draftId.empty() ? makeUuidV4() : sanitizeDraftId(draftId);
+            const fs::path draftPath = getDraftFile(resolvedDraftId);
             if (fs::exists(draftPath)) {
                 throw OCCConflictError("Draft already exists: " + resolvedDraftId);
             }
 
-            nlohmann::json envelope = {{"id", resolvedDraftId},
-                                       {"base_revision", extractRevision(activeMapping)},
-                                       {"created", nowIsoUtc()},
-                                       {"updated", nowIsoUtc()},
-                                       {"mapping", activeMapping},
-                                       {"meta", {{"draft_revision", 1}}}};
+            const std::string createdAt = nowIsoUtc();
 
-            writeDraftEnvelopeNoLock(mapFilePath, resolvedDraftId, envelope);
+            nlohmann::json envelope = {
+                {"id", resolvedDraftId},
+                {"base_revision", activeRevision},
+                {"draft_revision", 1},
+                {"created", createdAt},
+                {"updated", createdAt},
+                {"mapping", activeMapping}
+            };
+
+            writeDraftEnvelopeNoLock(resolvedDraftId, envelope);
             return resolvedDraftId;
         }
 
     } // namespace
 
-    nlohmann::json JsonMappingReader::readActive(const std::string& mapFilePath) {
-        SharedFileLock lock(mapFilePath);
-        return readActiveNoLock(mapFilePath);
-    }
-
-    std::uint64_t JsonMappingReader::readActiveRevision(const std::string& mapFilePath) {
-        SharedFileLock lock(mapFilePath);
-        return extractRevision(readActiveNoLock(mapFilePath));
-    }
-
-    std::string JsonMappingReader::getDraftsDirPath(const std::string& mapFilePath) {
-        return getDraftsDir(mapFilePath).string();
-    }
-
-    std::string JsonMappingReader::getDraftPath(const std::string& mapFilePath, const std::string& draftId) {
-        return getDraftFile(mapFilePath, draftId).string();
-    }
-
-    std::string JsonMappingReader::createDraftFromActive(const std::string& mapFilePath, const std::string& draftId) {
-        ExclusiveFileLock lock(mapFilePath);
-
-        const nlohmann::json active = readActiveNoLock(mapFilePath);
-        return createDraftFromMappingNoLock(mapFilePath, active, draftId);
-    }
-
-    std::string JsonMappingReader::createDraftFromMapping(const std::string& mapFilePath,
-                                                          const nlohmann::json& activeMapping,
+    std::string JsonMappingReader::createDraftFromMapping(const nlohmann::json& activeMapping,
+                                                          std::uint64_t activeRevision,
                                                           const std::string& draftId) {
-        ExclusiveFileLock lock(mapFilePath);
-        return createDraftFromMappingNoLock(mapFilePath, activeMapping, draftId);
+        ExclusiveFileLock lock("");
+        return createDraftFromMappingNoLock(activeMapping, activeRevision, draftId);
     }
 
-    std::vector<nlohmann::json> JsonMappingReader::listDrafts(const std::string& mapFilePath) {
-        SharedFileLock lock(mapFilePath);
+    std::vector<nlohmann::json> JsonMappingReader::listDrafts() {
+        SharedFileLock lock("");
 
         std::vector<nlohmann::json> drafts;
-        const fs::path draftsDir = getDraftsDir(mapFilePath);
+        const fs::path draftsDir = getDraftsDir();
         if (!fs::exists(draftsDir)) {
             return drafts;
         }
@@ -488,12 +481,9 @@ namespace mqtt::lib {
 
             try {
                 nlohmann::json envelope = readJsonFromFile(entry.path());
-                if (!envelope.is_object()) {
-                    continue;
-                }
-
+                ensureDraftEnvelopeShape(envelope, entry.path());
                 envelope.erase("mapping");
-                drafts.push_back(envelope);
+                drafts.push_back(std::move(envelope));
             } catch (...) {
             }
         }
@@ -505,105 +495,53 @@ namespace mqtt::lib {
         return drafts;
     }
 
-    nlohmann::json JsonMappingReader::readDraft(const std::string& mapFilePath, const std::string& draftId) {
-        SharedFileLock lock(mapFilePath);
-        return readDraftEnvelopeNoLock(mapFilePath, draftId);
+    nlohmann::json JsonMappingReader::readDraft(const std::string& draftId) {
+        SharedFileLock lock("");
+        return readDraftEnvelopeNoLock(draftId);
     }
 
-    nlohmann::json JsonMappingReader::replaceDraft(const std::string& mapFilePath,
-                                                   const std::string& draftId,
+    std::optional<int64_t> JsonMappingReader::readDraftRevision(const std::string& draftId) {
+        SharedFileLock lock("");
+        const nlohmann::json envelope = readDraftEnvelopeNoLock(draftId);
+        return envelope["draft_revision"].get<int64_t>();
+    }
+
+    nlohmann::json JsonMappingReader::replaceDraft(const std::string& draftId,
                                                    const nlohmann::json& mapping,
                                                    std::optional<int64_t> expectedDraftRevision) {
-        ExclusiveFileLock lock(mapFilePath);
-        return mutateDraftNoLock(mapFilePath, draftId, expectedDraftRevision, [&](const nlohmann::json&) {
+        ExclusiveFileLock lock("");
+        return mutateDraftNoLock(draftId, expectedDraftRevision, [&](const nlohmann::json&) {
             return mapping;
         });
     }
 
-    nlohmann::json JsonMappingReader::patchDraft(const std::string& mapFilePath,
-                                                 const std::string& draftId,
+    nlohmann::json JsonMappingReader::patchDraft(const std::string& draftId,
                                                  const nlohmann::json& patchOps,
                                                  std::optional<int64_t> expectedDraftRevision) {
-        ExclusiveFileLock lock(mapFilePath);
-        return mutateDraftNoLock(mapFilePath, draftId, expectedDraftRevision, [&](const nlohmann::json& currentMapping) {
+        ExclusiveFileLock lock("");
+        return mutateDraftNoLock(draftId, expectedDraftRevision, [&](const nlohmann::json& currentMapping) {
             return currentMapping.patch(patchOps);
         });
     }
 
-    void JsonMappingReader::discardDraft(const std::string& mapFilePath, const std::string& draftId) {
-        ExclusiveFileLock lock(mapFilePath);
-
-        const fs::path draftPath = getDraftFile(mapFilePath, draftId);
-        if (fs::exists(draftPath)) {
-            fs::remove(draftPath);
-        }
-    }
-
-    void JsonMappingReader::saveDraft(const std::string& mapFilePath, const nlohmann::json& content) {
-        try {
-            replaceDraft(mapFilePath, LEGACY_DRAFT_ID, content);
-        } catch (const EntityNotFoundError&) {
-            createDraftFromActive(mapFilePath, LEGACY_DRAFT_ID);
-            replaceDraft(mapFilePath, LEGACY_DRAFT_ID, content);
-        }
-    }
-
-    nlohmann::json JsonMappingReader::readDraftOrActive(const std::string& mapFilePath) {
-        try {
-            return readDraft(mapFilePath, LEGACY_DRAFT_ID).at("mapping");
-        } catch (const EntityNotFoundError&) {
-            return readActive(mapFilePath);
-        }
-    }
-
-    nlohmann::json JsonMappingReader::deployDraft(const std::string& mapFilePath, bool enableVersioning) {
-        return deployDraft(mapFilePath, LEGACY_DRAFT_ID, enableVersioning, std::nullopt);
-    }
-
-    std::string JsonMappingReader::getDraftPath(const std::string& mapFilePath) {
-        return getDraftPath(mapFilePath, LEGACY_DRAFT_ID);
+    void JsonMappingReader::discardDraft(const std::string& draftId) {
+        ExclusiveFileLock lock("");
+        removeDraftNoLock(draftId);
     }
 
     nlohmann::json JsonMappingReader::deployDraft(const std::string& mapFilePath,
                                                   const std::string& draftId,
-                                                  bool enableVersioning,
+                                                  const nlohmann::json& activeMapping,
+                                                  std::uint64_t activeRevision,
                                                   const std::optional<std::uint64_t>& expectedActiveRevision) {
         ExclusiveFileLock lock(mapFilePath);
 
-        nlohmann::json draft = readDraftEnvelopeNoLock(mapFilePath, draftId);
+        nlohmann::json mapping = buildDeployMappingNoLock(draftId, activeRevision, expectedActiveRevision);
 
-        std::uint64_t activeRevision = 0;
-        if (fs::exists(toMapPath(mapFilePath))) {
-            nlohmann::json active = readActiveNoLock(mapFilePath);
-            activeRevision = extractRevision(active);
-            ensureExpectedActiveRevision(expectedActiveRevision, activeRevision);
-
-            const std::uint64_t baseRevision = draft.value("base_revision", 0ULL);
-            ensureDraftBaseRevision(baseRevision, activeRevision);
-        } else {
-            activeRevision = draft.value("base_revision", 0ULL);
-            ensureExpectedActiveRevision(expectedActiveRevision, activeRevision);
-        }
-
-        nlohmann::json mapping = draft.at("mapping");
-        validateMapping(mapping);
-
-        saveCurrentAsVersionNoLock(mapFilePath, enableVersioning);
-
-        ensureMetaObject(mapping);
-        mapping["meta"]["created"] = nowIsoUtc();
-        mapping["meta"]["version"] = makeUniqueId();
-        mapping["meta"]["revision"] = activeRevision + 1;
-        mapping["meta"]["source_draft_id"] = sanitizeDraftId(draftId);
-
-        writeJsonAtomically(toMapPath(mapFilePath), mapping);
-        fs::remove(getDraftFile(mapFilePath, draftId));
+        saveCurrentAsVersionNoLock(mapFilePath, activeMapping);
+        removeDraftNoLock(draftId);
 
         return mapping;
-    }
-
-    void JsonMappingReader::discardDraft(const std::string& mapFilePath) {
-        discardDraft(mapFilePath, LEGACY_DRAFT_ID);
     }
 
     std::vector<JsonMappingReader::VersionEntry> JsonMappingReader::getHistory(const std::string& mapFilePath) {
@@ -634,11 +572,10 @@ namespace mqtt::lib {
                     std::ifstream f(v.filename);
                     nlohmann::json j;
                     f >> j;
-                    if (j.contains("meta")) {
-                        if (j["meta"].contains("comment"))
-                            v.comment = j["meta"]["comment"];
-                        if (j["meta"].contains("created"))
-                            v.date = j["meta"]["created"];
+                    v.comment = readMetaString(j, "comment");
+                    v.date = readMetaString(j, "deployed_at");
+                    if (v.date.empty()) {
+                        v.date = readMetaString(j, "created");
                     }
                 } catch (...) {
                 }
@@ -667,7 +604,8 @@ namespace mqtt::lib {
 
     nlohmann::json JsonMappingReader::rollbackTo(const std::string& mapFilePath,
                                                  const std::string& versionId,
-                                                 bool enableVersioning,
+                                                 const nlohmann::json& activeMapping,
+                                                 std::uint64_t activeRevision,
                                                  const std::optional<std::uint64_t>& expectedActiveRevision) {
         ExclusiveFileLock lock(mapFilePath);
 
@@ -679,27 +617,17 @@ namespace mqtt::lib {
             throw EntityNotFoundError("Version not found: " + versionId);
         }
 
-        nlohmann::json active = readActiveNoLock(mapFilePath);
-        const std::uint64_t activeRevision = extractRevision(active);
         ensureExpectedActiveRevision(expectedActiveRevision, activeRevision);
 
         nlohmann::json rollbackMapping = readJsonFromFile(backupPath);
         validateMapping(rollbackMapping);
 
-        saveCurrentAsVersionNoLock(mapFilePath, enableVersioning);
+        saveCurrentAsVersionNoLock(mapFilePath, activeMapping);
 
-        ensureMetaObject(rollbackMapping);
-        rollbackMapping["meta"]["created"] = nowIsoUtc();
-        rollbackMapping["meta"]["version"] = makeUniqueId();
-        rollbackMapping["meta"]["revision"] = activeRevision + 1;
+        setDeployMetadata(rollbackMapping, activeRevision + 1);
         rollbackMapping["meta"]["rolled_back_from"] = versionId;
 
-        writeJsonAtomically(toMapPath(mapFilePath), rollbackMapping);
         return rollbackMapping;
-    }
-
-    nlohmann::json JsonMappingReader::rollbackTo(const std::string& mapFilePath, const std::string& versionId) {
-        return rollbackTo(mapFilePath, versionId, true, std::nullopt);
     }
 
 } // namespace mqtt::lib
