@@ -46,11 +46,11 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include <cstdint>
 #include <nlohmann/json_fwd.hpp> // IWYU pragma: export
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <cstdint>
 #include <vector>
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
@@ -74,19 +74,29 @@ namespace mqtt::lib {
     class JsonMappingReader {
     public:
         JsonMappingReader() = delete;
-
-    public:
         // Admin / Live Reload Support
-        static std::string createDraftFromMapping(const nlohmann::json& activeMapping, std::uint64_t activeRevision, const std::string& draftId = "");
+        static std::string
+        createDraftFromMapping(const nlohmann::json& activeMapping, std::uint64_t activeRevision, const std::string& draftId = "");
         static std::vector<nlohmann::json> listDrafts();
         static nlohmann::json readDraft(const std::string& draftId);
         static std::optional<int64_t> readDraftRevision(const std::string& draftId);
         static nlohmann::json replaceDraft(const std::string& draftId,
                                            const nlohmann::json& mapping,
                                            std::optional<int64_t> expectedDraftRevision = std::nullopt);
-        static nlohmann::json patchDraft(const std::string& draftId,
-                                         const nlohmann::json& patchOps,
-                                         std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json
+        patchDraft(const std::string& draftId, const nlohmann::json& patchOps, std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json replaceDraftWithAutoCreate(const nlohmann::json& activeMapping,
+                                                         std::uint64_t activeRevision,
+                                                         const std::string& draftId,
+                                                         const nlohmann::json& mapping,
+                                                         std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json patchDraftWithAutoCreate(const nlohmann::json& activeMapping,
+                                                       std::uint64_t activeRevision,
+                                                       const std::string& draftId,
+                                                       const nlohmann::json& patchOps,
+                                                       std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static bool isMappingValid(const nlohmann::json& mapping);
+        static bool isDraftValid(const std::string& draftId);
         static void discardDraft(const std::string& draftId);
 
         static nlohmann::json deployDraft(const std::string& mapFilePath,
@@ -97,6 +107,7 @@ namespace mqtt::lib {
 
         struct VersionEntry {
             std::string id;
+            std::string snapshotId;
             std::string filename;
             std::string comment;
             std::string date;
@@ -104,11 +115,10 @@ namespace mqtt::lib {
 
         static std::vector<VersionEntry> getHistory(const std::string& mapFilePath);
         static nlohmann::json rollbackTo(const std::string& mapFilePath,
-                                         const std::string& versionId,
+                                         const std::string& snapshotId,
                                          const nlohmann::json& activeMapping,
                                          std::uint64_t activeRevision,
                                          const std::optional<std::uint64_t>& expectedActiveRevision);
-
     };
 
 } // namespace mqtt::lib
