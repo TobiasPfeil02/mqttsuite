@@ -57,6 +57,8 @@
 
 namespace mqtt::lib {
 
+    class ConfigApplication;
+
     class OCCConflictError : public std::runtime_error {
     public:
         explicit OCCConflictError(const std::string& whatArg)
@@ -74,51 +76,61 @@ namespace mqtt::lib {
     class JsonMappingReader {
     public:
         JsonMappingReader() = delete;
+
+        struct ApplyResult {
+            std::uint64_t revision{0};
+            std::string draftId;
+            bool mappingPersisted{false};
+            bool mustReconnect{false};
+        };
+
         // Admin / Live Reload Support
-        static std::string
-        createDraftFromMapping(const nlohmann::json& activeMapping, std::uint64_t activeRevision, const std::string& draftId = "");
-        static std::vector<nlohmann::json> listDrafts();
-        static nlohmann::json readDraft(const std::string& draftId);
-        static std::optional<int64_t> readDraftRevision(const std::string& draftId);
-        static nlohmann::json replaceDraft(const std::string& draftId,
+        static nlohmann::json createDraftFromActive(const std::string& adminStorageRoot,
+                                ConfigApplication* configApplication,
+                                const std::string& draftId = "");
+        static std::vector<nlohmann::json> listDrafts(const std::string& adminStorageRoot);
+        static nlohmann::json readDraft(const std::string& adminStorageRoot, const std::string& draftId);
+        static std::optional<int64_t> readDraftRevision(const std::string& adminStorageRoot, const std::string& draftId);
+        static nlohmann::json replaceDraft(const std::string& adminStorageRoot,
+                                           const std::string& draftId,
                                            const nlohmann::json& mapping,
                                            std::optional<int64_t> expectedDraftRevision = std::nullopt);
-        static nlohmann::json
-        patchDraft(const std::string& draftId, const nlohmann::json& patchOps, std::optional<int64_t> expectedDraftRevision = std::nullopt);
-        static nlohmann::json replaceDraftWithAutoCreate(const nlohmann::json& activeMapping,
-                                                         std::uint64_t activeRevision,
-                                                         const std::string& draftId,
-                                                         const nlohmann::json& mapping,
-                                                         std::optional<int64_t> expectedDraftRevision = std::nullopt);
-        static nlohmann::json patchDraftWithAutoCreate(const nlohmann::json& activeMapping,
-                                                       std::uint64_t activeRevision,
-                                                       const std::string& draftId,
-                                                       const nlohmann::json& patchOps,
-                                                       std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json patchDraft(const std::string& adminStorageRoot,
+                                         const std::string& draftId,
+                                         const nlohmann::json& patchOps,
+                                         std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json replaceDraftWithAutoCreate(const std::string& adminStorageRoot,
+                                 ConfigApplication* configApplication,
+                                 const std::string& draftId,
+                                 const nlohmann::json& mapping,
+                                 std::optional<int64_t> expectedDraftRevision = std::nullopt);
+        static nlohmann::json patchDraftWithAutoCreate(const std::string& adminStorageRoot,
+                                   ConfigApplication* configApplication,
+                                   const std::string& draftId,
+                                   const nlohmann::json& patchOps,
+                                   std::optional<int64_t> expectedDraftRevision = std::nullopt);
         static bool isMappingValid(const nlohmann::json& mapping);
-        static bool isDraftValid(const std::string& draftId);
-        static void discardDraft(const std::string& draftId);
-
-        static nlohmann::json deployDraft(const std::string& mapFilePath,
-                                          const std::string& draftId,
-                                          const nlohmann::json& activeMapping,
-                                          std::uint64_t activeRevision,
-                                          const std::optional<std::uint64_t>& expectedActiveRevision);
+        static bool isDraftValid(const std::string& adminStorageRoot, const std::string& draftId);
+        static void discardDraft(const std::string& adminStorageRoot, const std::string& draftId);
 
         struct VersionEntry {
-            std::string id;
             std::string snapshotId;
             std::string filename;
             std::string comment;
             std::string date;
         };
 
-        static std::vector<VersionEntry> getHistory(const std::string& mapFilePath);
-        static nlohmann::json rollbackTo(const std::string& mapFilePath,
-                                         const std::string& snapshotId,
-                                         const nlohmann::json& activeMapping,
-                                         std::uint64_t activeRevision,
-                                         const std::optional<std::uint64_t>& expectedActiveRevision);
+        static std::vector<VersionEntry> getHistory(const std::string& adminStorageRoot);
+
+        static ApplyResult deployAndApplyDraft(const std::string& adminStorageRoot,
+                               ConfigApplication* configApplication,
+                               const std::string& draftId,
+                               const std::optional<std::uint64_t>& expectedActiveRevision);
+
+        static ApplyResult rollbackAndApplyVersion(const std::string& adminStorageRoot,
+                               ConfigApplication* configApplication,
+                               const std::string& snapshotId,
+                               const std::optional<std::uint64_t>& expectedActiveRevision);
     };
 
 } // namespace mqtt::lib
