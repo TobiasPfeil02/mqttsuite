@@ -59,7 +59,7 @@ namespace inja {
 #include <list>
 #include <nlohmann/json.hpp> // IWYU pragma: export
 #include <string>
-#include <utility>
+#include <tuple>
 #include <vector>
 
 namespace nlohmann::json_schema {
@@ -80,7 +80,8 @@ namespace mqtt::lib {
             iot::mqtt::packets::Publish publish;
         };
 
-        using MappedPublishes = std::pair<std::vector<iot::mqtt::packets::Publish>, std::vector<ScheduledPublish>>;
+        using MappedPublishes = std::tuple<std::vector<iot::mqtt::packets::Publish>, std::vector<ScheduledPublish>>;
+        using ConnectParameter = std::tuple<bool, std::string, std::string, uint8_t, bool, std::string, std::string>;
 
         MqttMapper();
         MqttMapper(const MqttMapper&) = delete;
@@ -90,20 +91,19 @@ namespace mqtt::lib {
 
         static const std::string& getSchema();
 
-        bool setMapping(nlohmann::json mappingJson); // can throw
-        const nlohmann::json& getMappingJson() const;
-        const nlohmann::json& getMappingJsonUnpatched() const;
+        bool setMapping(nlohmann::json mappingJson); // can throw const nlohmann::json& getMapping() const;
+        const nlohmann::json& getMapping() const;
 
-        std::string dump();
-
-        const nlohmann::json& getConnection() const;
+        std::string getClientId() const;
+        uint16_t getKeepAlive() const;
+        ConnectParameter getConnectPayload() const;
+        uint64_t getRevision() const;
 
         std::list<iot::mqtt::Topic> extractSubscriptions() const;
         MappedPublishes getMappings(const iot::mqtt::packets::Publish& publish);
 
         static const nlohmann::json validate(const nlohmann::json& json);
         static const nlohmann::json validate(const nlohmann::json& json, nlohmann::json_schema::basic_error_handler& err);
-        static const nlohmann::json patch(const nlohmann::json& json);
 
     private:
         static void

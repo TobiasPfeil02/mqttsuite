@@ -81,7 +81,6 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#include <exception>
 #include <log/Logger.h>
 //
 #include <utility>
@@ -196,6 +195,31 @@ HttpClient startClient(const std::string& name, const std::function<void(typenam
 
 int main(int argc, char* argv[]) {
     mqtt::lib::ConfigMqttIntegrator* configMqttIntegrator = utils::Config::configRoot.newSubCommand<mqtt::lib::ConfigMqttIntegrator>();
+    /*
+        configMqttIntegrator->setMappingFile("mapping.json"); // Load mapping from mapping.json. (can throw)
+
+        configMqttIntegrator->setMapping( // Override mapping from mapping.json with a in-code mapping (can throw)
+            R"({
+                        "mapping": {
+                          "plugins": [],
+                          "topic_level": [{
+                          "name": "value",
+                          "subscription": {
+                            "value": {
+                              "mapped_topic": "mapping/json",
+                              "mapping_template": "{\"state\":\"{{message}}\"}"
+                            }
+                          }
+                        }]
+                      }
+                    })");
+
+        if (configMqttIntegrator->persistMapping()) {
+            std::cout << "Mapping persisted successfully" << std::endl;
+        } else {
+            std::cout << "Mapping deploy acknowledged but not persisted" << std::endl;
+        }
+    */
 
     core::SNodeC::init(argc, argv);
 

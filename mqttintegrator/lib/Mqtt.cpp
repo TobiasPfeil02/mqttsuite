@@ -54,7 +54,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <nlohmann/json_fwd.hpp>
 
 #endif
 
@@ -73,8 +72,8 @@ namespace mqtt::mqttintegrator::lib {
                std::shared_ptr<mqtt::lib::MqttMapper> mqttMapper,
                const std::string& sessionStoreFileName)
         : iot::mqtt::client::Mqtt(connectionName, //
-                                  mqttMapper->getConnection()["client_id"],
-                                  mqttMapper->getConnection()["keep_alive"],
+                                  mqttMapper->getClientId(),
+                                  mqttMapper->getKeepAlive(),
                                   sessionStoreFileName)
         , mqttMapper(mqttMapper)
         , currentSubscriptions(mqttMapper->extractSubscriptions())
@@ -111,15 +110,15 @@ namespace mqtt::mqttintegrator::lib {
     }
 
     void Mqtt::onConnected() {
-        const nlohmann::json& connection = mqttMapper->getConnection();
+        const auto& [cleanSession, //
+                     willTopic,
+                     willMessage,
+                     WillQoS,
+                     willRetain,
+                     username,
+                     password] = mqttMapper->getConnectPayload();
 
-        sendConnect(connection["clean_session"],
-                    connection["will_topic"],
-                    connection["will_message"],
-                    connection["will_qos"],
-                    connection["will_retain"],
-                    connection["username"],
-                    connection["password"]);
+        sendConnect(cleanSession, willTopic, willMessage, WillQoS, willRetain, username, password);
     }
 
     bool Mqtt::onSignal(int signum) {
